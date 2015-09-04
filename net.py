@@ -6,54 +6,7 @@ import settings
 from utils import add_caffe_to_path
 
 
-class CaffeNetClassifier():
-    """This class is a wrapper around a CNN defined in Caffe which can predict
-    class labels with softmax."""
-    def __init__(
-        self,
-        deployfile_relpath,
-        weights_relpath,
-        image_dims=(256, 256),
-        mean=(104, 117, 123),
-        device_id=0,
-        input_scale=1,
-    ):
-        self._net, self._caffe = _load_caffe_net(
-            deployfile_relpath=deployfile_relpath,
-            weights_relpath=weights_relpath,
-            image_dims=image_dims,
-            mean=mean,
-            device_id=device_id,
-            input_scale=input_scale,
-        )
-
-    def predict(self, filename, oversample=True):
-        if isinstance(filename, np.ndarray):
-            inputs = [filename]
-        else:
-            inputs = [self._caffe.io.load_image(filename)]
-        return self._net.predict(inputs, oversample=oversample, auto_reshape=True)
-
-    def extract_features(self, filename, blob_names, oversample=True):
-        # sanity checking
-        if len(set(blob_names)) != len(blob_names):
-            raise ValueError("Duplicate name in blob_names: %s" % blob_names)
-
-        self.predict(filename, oversample=oversample)
-        ret = {}
-        for blob_name in blob_names:
-            blob_data = self._net.blobs[blob_name].data.copy()
-            if oversample:
-                orig_shape = blob_data.shape
-                blob_data = blob_data.reshape((len(blob_data) / 10, 10, -1))
-                blob_data = blob_data.mean(1)
-                blob_data = blob_data.reshape((orig_shape[0]/10,) + orig_shape[1:])
-            ret[blob_name] = blob_data
-
-        return ret
-
-
-def _load_caffe_net(
+def load_caffe_net(
     deployfile_relpath,
     weights_relpath,
     image_dims=(256, 256),
@@ -63,6 +16,81 @@ def _load_caffe_net(
 ):
     add_caffe_to_path()
     import caffe
+
+    class DeepArtNet(caffe.Net):
+        """
+        DeepArtNet extends Net for artistic pleasure.
+
+        Parameters
+        ----------
+        mean, input_scale, raw_scale, channel_swap: params for
+            preprocessing options.
+        """
+        def __init__(self, model_file, pretrained_file, image_dims,
+                    mean=None, input_scale=None, raw_scale=None,
+                    channel_swap=None):
+            caffe.Net.__init__(self, model_file, pretrained_file, caffe.TEST)
+
+            # configure pre-processing
+            in_ = self.inputs[0]
+            self.transformer = caffe.io.Transformer(
+                {in_: self.blobs[in_].data.shape})
+            self.transformer.set_transpose(in_, (2, 0, 1))
+            if mean is not None:
+                self.transformer.set_mean(in_, mean)
+            if input_scale is not None:
+                self.transformer.set_input_scale(in_, input_scale)
+            if raw_scale is not None:
+                self.transformer.set_raw_scale(in_, raw_scale)
+            if channel_swap is not None:
+                self.transformer.set_channel_swap(in_, channel_swap)
+
+            self.image_dims = image_dims
+
+        def preprocess_inputs(self, inputs, auto_reshape=True):
+            """
+            Preprocesses inputs.
+
+            Parameters
+            ----------
+            inputs : iterable of (H x W x K) input ndarrays.
+
+            Returns
+            -------
+            caffe_in: Preprocessed input which can be passed to forward.
+            """
+            # Scale to standardize input dimensions.
+            input_ = np.zeros(
+                (len(inputs),
+                self.image_dims[0],
+                self.image_dims[1],
+                inputs[0].shape[2]),
+                dtype=np.float32
+            )
+            for ix, in_ in enumerate(inputs):
+                input_[ix] = caffe.io.resize_image(in_, self.image_dims)
+
+            # Run net
+            caffe_in = np.zeros(
+                np.array(input_.shape)[[0, 3, 1, 2]],
+                dtype=np.float32
+            )
+            if auto_reshape:
+                self.reshape_by_input(caffe_in)
+
+            for ix, in_ in enumerate(input_):
+                caffe_in[ix] = self.transformer.preprocess(self.inputs[0], in_)
+
+            return caffe_in
+
+        def reshape_by_input(self, caffe_in):
+            """
+            Reshapes the whole net according to the input
+            """
+            in_ = self.inputs[0]
+            self.blobs[in_].reshape(*caffe_in.shape)
+            self.transformer.inputs = {in_: self.blobs[in_].data.shape}
+            self.reshape()
 
     mean = np.array(mean)
 
@@ -78,7 +106,7 @@ def _load_caffe_net(
         print 'Using CPU'
         caffe.set_mode_cpu()
 
-    net = caffe.Classifier(
+    net = DeepArtNet(
         model_file=model_file,
         pretrained_file=pretrained_file,
         mean=mean,
@@ -88,4 +116,5 @@ def _load_caffe_net(
         image_dims=image_dims,
     )
 
-    return net, caffe
+    return caffe, net
+

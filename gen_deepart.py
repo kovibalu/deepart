@@ -4,7 +4,7 @@ import settings
 import numpy as np
 
 import skimage
-from net import CaffeNetClassifier
+from net import load_caffe_net
 from utils import Timer, ensuredir, plot_and_save_2D_array
 
 
@@ -118,8 +118,7 @@ def gen_target_data(root_dir, caffe, net, get_data_blob, targets):
     for target_i, (target_img_path, target_blob_names, _, _) in enumerate(targets):
         # Load and rescale to [0, 1]
         target_img = caffe.io.load_image(target_img_path)
-        caffe_in = net.preprocess_inputs([target_img], oversample=False)
-        net.reshape_by_input(caffe_in)
+        caffe_in = net.preprocess_inputs([target_img])
         # Copy image into input blob
         get_data_blob().data[...] = caffe_in
         net.forward()
@@ -210,35 +209,18 @@ def make_step(net, get_data_blob, all_target_blob_names, targets, target_data_li
 def setup_classifier():
     deployfile_relpath = 'models/VGG_CNN_19/VGG_ILSVRC_19_layers_deploy_deepart.prototxt'
     weights_relpath = 'models/VGG_CNN_19/VGG_ILSVRC_19_layers.caffemodel'
-    image_dims = (256, 256)
+    image_dims = (1014/2, 1280/2)
     #mean = (104, 117, 123)
     mean = (103.939, 116.779, 123.68)
     device_id = 0
     input_scale = 1.0
 
-    classifier = CaffeNetClassifier(
+    caffe, net = load_caffe_net(
         deployfile_relpath, weights_relpath, image_dims, mean, device_id,
         input_scale
     )
-    #test_imagenet_classifier(classifier)
 
-    caffe = classifier._caffe
-    net = classifier._net
     return caffe, net, image_dims
-
-
-def test_imagenet_classifier(classifier):
-    print 'Testing classifier...'
-    blob_names = [
-        'prob',
-    ]
-    img = os.path.join(settings.CAFFE_ROOT, 'examples/images/cat.jpg')
-    fetdic = classifier.extract_features(img, blob_names=blob_names)
-
-    labels = get_imagenet_labels()
-    inds = np.argsort(np.squeeze(fetdic['prob']))[-1:-6:-1]
-    print inds
-    print labels[inds]
 
 
 def deepart():
@@ -275,8 +257,7 @@ def deepart():
 
     # Generate white noise image
     init_img = np.random.normal(loc=0.5, scale=0.1, size=image_dims + (3,))
-    caffe_in = net.preprocess_inputs([init_img], oversample=False)
-    net.reshape_by_input(caffe_in)
+    caffe_in = net.preprocess_inputs([init_img])
     # Copy image into input blob
     get_data_blob().data[...] = caffe_in
 
