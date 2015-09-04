@@ -1,9 +1,9 @@
 import os
-import settings
 
 import numpy as np
-
 import skimage
+
+import settings
 from net import load_caffe_net
 from utils import Timer, ensuredir, plot_and_save_2D_array
 
@@ -145,13 +145,16 @@ def make_step(net, get_data_blob, all_target_blob_names, targets, target_data_li
               jitter):
     # Makes one iteration step and updates the gradient of the data blob
 
-    #with Timer('Forward'):
-    net.forward(end=all_target_blob_names[-1])
-
     # Add random shifting similar to google deep dream
     if jitter:
         ox, oy = np.random.randint(-jitter, jitter+1, 2)
-        get_data_blob().data[0] = np.roll(np.roll(get_data_blob().data[0], ox, -1), oy, -2) # apply jitter shift
+        # apply jitter shift
+        get_data_blob().data[0] = np.roll(
+            np.roll(get_data_blob().data[0], ox, -1), oy, -2
+        )
+
+    #with Timer('Forward'):
+    net.forward(end=all_target_blob_names[-1])
 
     loss = 0
     # Go through target blobs in reversed order
@@ -201,7 +204,10 @@ def make_step(net, get_data_blob, all_target_blob_names, targets, target_data_li
     get_data_blob().diff[...] /= np.abs(get_data_blob().diff).mean()
 
     if jitter:
-        get_data_blob().data[0] = np.roll(np.roll(get_data_blob().data[0], -ox, -1), -oy, -2) # unshift image
+        # unshift image
+        get_data_blob().data[0] = np.roll(
+            np.roll(get_data_blob().data[0], -ox, -1), -oy, -2
+        )
 
     return loss
 
