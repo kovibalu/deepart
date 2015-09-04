@@ -141,17 +141,9 @@ def gen_target_data(root_dir, caffe, net, get_data_blob, targets):
     return target_data_list
 
 
-def make_step(net, get_data_blob, all_target_blob_names, targets, target_data_list,
-              jitter):
+def make_step(net, get_data_blob, all_target_blob_names, targets,
+              target_data_list):
     # Makes one iteration step and updates the gradient of the data blob
-
-    # Add random shifting similar to google deep dream
-    if jitter:
-        ox, oy = np.random.randint(-jitter, jitter+1, 2)
-        # apply jitter shift
-        get_data_blob().data[0] = np.roll(
-            np.roll(get_data_blob().data[0], ox, -1), oy, -2
-        )
 
     #with Timer('Forward'):
     net.forward(end=all_target_blob_names[-1])
@@ -203,12 +195,6 @@ def make_step(net, get_data_blob, all_target_blob_names, targets, target_data_li
     # normalize gradient
     get_data_blob().diff[...] /= np.abs(get_data_blob().diff).mean()
 
-    if jitter:
-        # unshift image
-        get_data_blob().data[0] = np.roll(
-            np.roll(get_data_blob().data[0], -ox, -1), -oy, -2
-        )
-
     return loss
 
 
@@ -235,14 +221,21 @@ def deepart():
     root_dir = 'gen_fet_image_debug'
     display = 100
     max_iter = 100000
-    jitter = 16
+    jitter = 0
+    # list of targets defined by tuples of
+    # (
+    #     image path,
+    #     target blob names (these activations will be included in the loss function),
+    #     we use style (gram) or content loss,
+    #     weighting factor
+    # )
     targets = [
-        ('images/starry_night.jpg', ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1'], True, 300),
+        ('images/starry_night.jpg', ['conv1_1'], True, 300),
         #('images/tuebingen.jpg'), ['conv4_2'], False, 1),
     ]
     # These have to be in the same order as in the network!
     #all_target_blob_names = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1', 'conv4_2', 'conv5_1']
-    all_target_blob_names = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1']
+    all_target_blob_names = ['conv1_1']
     #all_target_blob_names = ['conv4_2']
 
     caffe, net, image_dims = setup_classifier()
@@ -262,7 +255,7 @@ def deepart():
     #target_blob[0, channel, ...] *= 5
 
     # Generate white noise image
-    init_img = np.random.normal(loc=0.5, scale=0.1, size=image_dims + (3,))
+    init_img = np.random.normal(loc=0.5, scale=0.001, size=image_dims + (3,))
     caffe_in = net.preprocess_inputs([init_img])
     # Copy image into input blob
     get_data_blob().data[...] = caffe_in
@@ -285,14 +278,29 @@ def deepart():
                     save_loss_proc(recent_loss_filepath, loss_proc, 1000)
                     save_loss_proc(loss_filepath, loss_proc)
 
+            # Add random shifting similar to google deep dream
+            if jitter:
+                ox, oy = np.random.randint(-jitter, jitter+1, 2)
+                # apply jitter shift
+                get_data_blob().data[0] = np.roll(
+                    np.roll(get_data_blob().data[0], ox, -1), oy, -2
+                )
+
             # The updated gradient will be saved to data_blob.diff
             loss = make_step(
                 net, get_data_blob, all_target_blob_names, targets,
-                target_data_list, jitter
+                target_data_list
             )
             loss_proc.append(loss)
             # SGD step
             sgd(get_data_blob().data, get_data_blob().diff, solver_param)
+
+            if jitter:
+                # unshift image
+                get_data_blob().data[0] = np.roll(
+                    np.roll(get_data_blob().data[0], -ox, -1), -oy, -2
+                )
+
 
 
 if __name__ == '__main__':
