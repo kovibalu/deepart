@@ -322,17 +322,17 @@ layers {
   name: "relu5_4"
   type: RELU
 }
-layers {
-  bottom: "conv5_4"
-  top: "pool5"
-  name: "pool5"
-  type: POOLING
-  pooling_param {
-    pool: MAX
-    kernel_size: 2
-    stride: 2
-  }
-}
+#layers {
+#  bottom: "conv5_4"
+#  top: "pool5"
+#  name: "pool5"
+#  type: POOLING
+#  pooling_param {
+#    pool: MAX
+#    kernel_size: 2
+#    stride: 2
+#  }
+#}
 #layers {
 #  bottom: "pool5"
 #  top: "fc6"
